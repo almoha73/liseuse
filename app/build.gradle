@@ -10,8 +10,8 @@ android {
         applicationId "org.almoha.liseuse"
         minSdk 26
         targetSdk 34
-        versionCode 1
-        versionName "1.0"
+        versionCode 2
+        versionName "1.1"
         ndk {
             // Moteur de voix intégré (sherpa-onnx) : uniquement les téléphones 64 bits ARM.
             abiFilters 'arm64-v8a'

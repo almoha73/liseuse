@@ -20,7 +20,6 @@ import android.speech.tts.UtteranceProgressListener;
 import android.speech.tts.Voice;
 
 import androidx.annotation.Nullable;
-import androidx.core.app.NotificationCompat;
 
 import org.almoha.liseuse.R;
 import org.almoha.liseuse.epub.BookText;
@@ -329,6 +328,33 @@ public class TtsService extends Service implements TextToSpeech.OnInitListener {
         else resume();
     }
 
+    /** Saut d'environ {@code seconds} secondes, au début de phrase le plus proche. */
+    public void jumpSeconds(int seconds) {
+        if (text == null || text.sentences.isEmpty()) return;
+        int from = Math.max(0, Math.min(index, text.sentences.size() - 1));
+        int startOffset = text.sentences.get(from).start;
+        int target = startOffset + (seconds > 0 ? 1 : -1) * charsFor(Math.abs(seconds));
+        target = Math.max(0, Math.min(text.text.length() - 1, target));
+        int i = text.sentenceIndexAt(target);
+        if (i + 1 < text.sentences.size()
+                && text.sentences.get(i + 1).start - target < target - text.sentences.get(i).start) {
+            i++;
+        }
+        if (i == from) i += seconds > 0 ? 1 : -1;
+        seekToSentence(i);
+        updateNotification();
+    }
+
+    private void stopAll() {
+        saveProgress();
+        playing = false;
+        if (ready) tts.stop();
+        releaseAudio();
+        if (listener != null) listener.onState(false);
+        stopForeground(true);
+        stopSelf();
+    }
+
     public void next() {
         if (text == null) return;
         index = Math.min(index + 1, text.sentences.size() - 1);
@@ -578,33 +604,128 @@ public class TtsService extends Service implements TextToSpeech.OnInitListener {
         }
     }
 
-    private Notification buildNotification() {
-        Intent open = new Intent(this, org.almoha.liseuse.ReaderActivity.class)
+    private android.media.session.MediaSession session;
+    private String coverPathShown;
+    private android.graphics.Bitmap cover;
+
+    /** Session multimédia : lecteur sur l'écran verrouillé, réglages rapides, boutons du casque. */
+    private void ensureSession() {
+        if (session != null) return;
+        session = new android.media.session.MediaSession(this, "Liseuse");
+        session.setCallback(new android.media.session.MediaSession.Callback() {
+            @Override
+            public void onPlay() {
+                resume();
+            }
+
+            @Override
+            public void onPause() {
+                pause();
+            }
+
+            @Override
+            public void onStop() {
+                stopAll();
+            }
+
+            @Override
+            public void onSkipToNext() {
+                jumpSeconds(10);
+            }
+
+            @Override
+            public void onSkipToPrevious() {
+                jumpSeconds(-10);
+            }
+
+            @Override
+            public void onFastForward() {
+                jumpSeconds(10);
+            }
+
+            @Override
+            public void onRewind() {
+                jumpSeconds(-10);
+            }
+        });
+        Intent open = openIntent();
+        session.setSessionActivity(PendingIntent.getActivity(this, 0, open,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
+        session.setActive(true);
+    }
+
+    private Intent openIntent() {
+        return new Intent(this, org.almoha.liseuse.ReaderActivity.class)
                 .putExtra(org.almoha.liseuse.ReaderActivity.EXTRA_BOOK_ID, bookId)
                 .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        PendingIntent openPi = PendingIntent.getActivity(this, 0, open,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+    }
 
-        String snippet = "";
-        if (text != null && index >= 0 && index < text.sentences.size()) {
-            snippet = text.sentences.get(index).text(text.text);
-            if (snippet.length() > 120) snippet = snippet.substring(0, 120) + "\u2026";
+    private void updateSession() {
+        ensureSession();
+        org.almoha.liseuse.model.Book book = bookId == null ? null : library.find(bookId);
+        String coverPath = book != null ? book.coverPath : null;
+        if (coverPath == null ? coverPathShown != null : !coverPath.equals(coverPathShown)) {
+            coverPathShown = coverPath;
+            cover = coverPath == null ? null : android.graphics.BitmapFactory.decodeFile(coverPath);
         }
+        String snippet = currentSnippet();
+        android.media.MediaMetadata.Builder meta = new android.media.MediaMetadata.Builder()
+                .putString(android.media.MediaMetadata.METADATA_KEY_TITLE,
+                        book != null ? book.title : "Lecture vocale")
+                .putString(android.media.MediaMetadata.METADATA_KEY_ARTIST,
+                        book != null && book.author != null ? book.author : "")
+                .putString(android.media.MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE, snippet);
+        if (cover != null) meta.putBitmap(android.media.MediaMetadata.METADATA_KEY_ALBUM_ART, cover);
+        session.setMetadata(meta.build());
+        long actions = android.media.session.PlaybackState.ACTION_PLAY
+                | android.media.session.PlaybackState.ACTION_PAUSE
+                | android.media.session.PlaybackState.ACTION_PLAY_PAUSE
+                | android.media.session.PlaybackState.ACTION_STOP
+                | android.media.session.PlaybackState.ACTION_SKIP_TO_NEXT
+                | android.media.session.PlaybackState.ACTION_SKIP_TO_PREVIOUS
+                | android.media.session.PlaybackState.ACTION_FAST_FORWARD
+                | android.media.session.PlaybackState.ACTION_REWIND;
+        session.setPlaybackState(new android.media.session.PlaybackState.Builder()
+                .setActions(actions)
+                .setState(playing ? android.media.session.PlaybackState.STATE_PLAYING
+                                : android.media.session.PlaybackState.STATE_PAUSED,
+                        android.media.session.PlaybackState.PLAYBACK_POSITION_UNKNOWN, playing ? speed : 0f)
+                .build());
+    }
 
-        NotificationCompat.Builder b = new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.ic_media_play)
-                .setContentTitle("Lecture vocale")
-                .setContentText(snippet)
-                .setStyle(new NotificationCompat.BigTextStyle().bigText(snippet))
+    private String currentSnippet() {
+        if (text == null || index < 0 || index >= text.sentences.size()) return "";
+        String snippet = text.sentences.get(index).text(text.text).replace('\n', ' ');
+        return snippet.length() > 120 ? snippet.substring(0, 120) + "\u2026" : snippet;
+    }
+
+    private Notification buildNotification() {
+        updateSession();
+        PendingIntent openPi = PendingIntent.getActivity(this, 0, openIntent(),
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        org.almoha.liseuse.model.Book book = bookId == null ? null : library.find(bookId);
+        Notification.Builder b = new Notification.Builder(this, CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_play)
+                .setContentTitle(book != null ? book.title : "Lecture vocale")
+                .setContentText(currentSnippet())
+                .setLargeIcon(cover)
                 .setContentIntent(openPi)
+                .setDeleteIntent(action(ACTION_STOP))
                 .setOngoing(playing)
                 .setOnlyAlertOnce(true)
-                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                .addAction(android.R.drawable.ic_media_previous, "Précédent", action(ACTION_PREV))
-                .addAction(playing ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play,
-                        playing ? "Pause" : "Lecture", action(ACTION_TOGGLE))
-                .addAction(android.R.drawable.ic_media_next, "Suivant", action(ACTION_NEXT))
-                .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Arrêter", action(ACTION_STOP));
+                .setShowWhen(false)
+                .setVisibility(Notification.VISIBILITY_PUBLIC)
+                .setCategory(Notification.CATEGORY_TRANSPORT)
+                .addAction(new Notification.Action.Builder(android.graphics.drawable.Icon.createWithResource(
+                        this, R.drawable.ic_replay10), "Reculer de 10 s", action(ACTION_PREV)).build())
+                .addAction(new Notification.Action.Builder(android.graphics.drawable.Icon.createWithResource(
+                        this, playing ? R.drawable.ic_pause : R.drawable.ic_play),
+                        playing ? "Pause" : "Lecture", action(ACTION_TOGGLE)).build())
+                .addAction(new Notification.Action.Builder(android.graphics.drawable.Icon.createWithResource(
+                        this, R.drawable.ic_forward10), "Avancer de 10 s", action(ACTION_NEXT)).build())
+                .setStyle(new Notification.MediaStyle()
+                        .setMediaSession(session.getSessionToken())
+                        .setShowActionsInCompactView(0, 1, 2));
         return b.build();
     }
 
@@ -632,17 +753,13 @@ public class TtsService extends Service implements TextToSpeech.OnInitListener {
                     pause();
                     break;
                 case ACTION_PREV:
-                    previous();
+                    jumpSeconds(-10);
                     break;
                 case ACTION_NEXT:
-                    next();
+                    jumpSeconds(10);
                     break;
                 case ACTION_STOP:
-                    playing = false;
-                    if (ready) tts.stop();
-                    releaseAudio();
-                    stopForeground(true);
-                    stopSelf();
+                    stopAll();
                     break;
                 default:
                     break;
@@ -654,6 +771,11 @@ public class TtsService extends Service implements TextToSpeech.OnInitListener {
     @Override
     public void onDestroy() {
         playing = false;
+        if (session != null) {
+            session.setActive(false);
+            session.release();
+            session = null;
+        }
         if (tts != null) {
             tts.stop();
             tts.shutdown();
