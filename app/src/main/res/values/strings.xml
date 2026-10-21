@@ -48,6 +48,14 @@
     <string name="open_engine">Ouvrir l\'app</string>
     <string name="no_french_voice_in_engine">Aucune voix française n\'est encore installée dans %1$s. Ouvre l\'app pour en télécharger une, puis reviens ici.</string>
     <string name="supertonic_engine">Supertonic (Liseuse)</string>
+    <string name="supertonic_download_message">Les voix Supertonic (10 voix françaises, hors ligne) ne sont pas encore installées. Le téléchargement fait environ %1$d Mo, depuis la page officielle de sherpa-onnx.</string>
+    <string name="supertonic_download_metered">Attention : tu n\'es pas en Wi-Fi, le téléchargement utilisera ton forfait mobile.</string>
+    <string name="supertonic_download">Télécharger les voix</string>
+    <string name="supertonic_downloading">Téléchargement des voix</string>
+    <string name="supertonic_ready">Voix Supertonic installées</string>
+    <string name="supertonic_download_failed">Téléchargement impossible</string>
+    <string name="background">Continuer en fond</string>
+    <string name="retry">Réessayer</string>
     <string name="close">Fermer</string>
     <string name="bookmark_exists">Il y a déjà un signet ici</string>
     <string name="bookmark_added">Signet ajouté</string>

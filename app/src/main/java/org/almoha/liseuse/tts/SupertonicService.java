@@ -42,12 +42,11 @@ public class SupertonicService extends TextToSpeechService {
     private String voiceName = PREFIX + STYLES[0];
 
     private File modelDir() {
-        return new File(getFilesDir(), "supertonic");
+        return SupertonicDownloader.modelDir(this);
     }
 
     private boolean modelPresent() {
-        File d = modelDir();
-        return new File(d, "vector_estimator.int8.onnx").isFile() && new File(d, "voice.bin").isFile();
+        return SupertonicDownloader.isInstalled(this);
     }
 
     private synchronized boolean ensureLoaded() {

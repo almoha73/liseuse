@@ -867,6 +867,10 @@ public class ReaderActivity extends AppCompatActivity implements TtsService.List
         String engine = tts.currentEngine();
         String title = getString(R.string.voice) + " \u2014 " + engineLabel(engine);
         List<TtsService.VoiceInfo> voices = tts.frenchVoices();
+        if (voices.isEmpty() && getPackageName().equals(engine)) {
+            offerSupertonicDownload();
+            return;
+        }
         if (voices.isEmpty()) {
             new AlertDialog.Builder(this)
                     .setTitle(title)
@@ -898,6 +902,73 @@ public class ReaderActivity extends AppCompatActivity implements TtsService.List
                 .setNeutralButton(R.string.change_engine, (d, w) -> showEngines())
                 .setPositiveButton(R.string.ok, null)
                 .show();
+    }
+
+    private void offerSupertonicDownload() {
+        if (org.almoha.liseuse.tts.SupertonicDownloader.isRunning()) {
+            showSupertonicDownload();
+            return;
+        }
+        String message = getString(R.string.supertonic_download_message,
+                org.almoha.liseuse.tts.SupertonicDownloader.SIZE / 1_000_000);
+        android.net.ConnectivityManager cm = getSystemService(android.net.ConnectivityManager.class);
+        if (cm != null && cm.isActiveNetworkMetered()) message += "\n\n" + getString(R.string.supertonic_download_metered);
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.supertonic_engine)
+                .setMessage(message)
+                .setPositiveButton(R.string.supertonic_download, (d, w) -> showSupertonicDownload())
+                .setNeutralButton(R.string.change_engine, (d, w) -> showEngines())
+                .setNegativeButton(R.string.cancel, null)
+                .show();
+    }
+
+    /** Téléchargement du modèle avec barre de progression ; il continue si l'on ferme la fenêtre. */
+    private void showSupertonicDownload() {
+        View view = getLayoutInflater().inflate(R.layout.dialog_download, null);
+        ProgressBar bar = view.findViewById(R.id.download_bar);
+        TextView label = view.findViewById(R.id.download_label);
+        final org.almoha.liseuse.tts.SupertonicDownloader[] job = new org.almoha.liseuse.tts.SupertonicDownloader[1];
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(R.string.supertonic_downloading)
+                .setView(view)
+                .setCancelable(false)
+                .setNegativeButton(R.string.cancel, (d, w) -> {
+                    if (job[0] != null) job[0].cancel();
+                })
+                .setPositiveButton(R.string.background, null)
+                .create();
+        org.almoha.liseuse.tts.SupertonicDownloader.Listener l = new org.almoha.liseuse.tts.SupertonicDownloader.Listener() {
+            @Override
+            public void onProgress(int percent, String step) {
+                bar.setProgress(percent);
+                label.setText(step + " \u2026 " + percent + " %");
+            }
+
+            @Override
+            public void onDone() {
+                if (dialog.isShowing()) dialog.dismiss();
+                if (isFinishing() || isDestroyed()) return;
+                Toast.makeText(ReaderActivity.this, R.string.supertonic_ready, Toast.LENGTH_LONG).show();
+                showVoices();
+            }
+
+            @Override
+            public void onError(String message) {
+                if (dialog.isShowing()) dialog.dismiss();
+                if (isFinishing() || isDestroyed()) return;
+                new AlertDialog.Builder(ReaderActivity.this)
+                        .setTitle(R.string.supertonic_download_failed)
+                        .setMessage(message)
+                        .setPositiveButton(R.string.retry, (d, w) -> showSupertonicDownload())
+                        .setNegativeButton(R.string.close, null)
+                        .show();
+            }
+        };
+        dialog.setOnDismissListener(d -> {
+            if (job[0] != null) job[0].detach(l);
+        });
+        dialog.show();
+        job[0] = org.almoha.liseuse.tts.SupertonicDownloader.start(this, l);
     }
 
     /** Choix de l'appli de synthèse vocale (Google, SherpaTTS, Acapela…). */
