@@ -668,13 +668,11 @@ public class TtsService extends Service implements TextToSpeech.OnInitListener {
             coverPathShown = coverPath;
             cover = coverPath == null ? null : android.graphics.BitmapFactory.decodeFile(coverPath);
         }
-        String snippet = currentSnippet();
         android.media.MediaMetadata.Builder meta = new android.media.MediaMetadata.Builder()
                 .putString(android.media.MediaMetadata.METADATA_KEY_TITLE,
                         book != null ? book.title : "Lecture vocale")
                 .putString(android.media.MediaMetadata.METADATA_KEY_ARTIST,
-                        book != null && book.author != null ? book.author : "")
-                .putString(android.media.MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE, snippet);
+                        book != null && book.author != null ? book.author : "");
         if (cover != null) meta.putBitmap(android.media.MediaMetadata.METADATA_KEY_ALBUM_ART, cover);
         session.setMetadata(meta.build());
         long actions = android.media.session.PlaybackState.ACTION_PLAY
@@ -693,13 +691,10 @@ public class TtsService extends Service implements TextToSpeech.OnInitListener {
                 .build());
     }
 
-    private String currentSnippet() {
-        if (text == null || index < 0 || index >= text.sentences.size()) return "";
-        String snippet = text.sentences.get(index).text(text.text).replace('\n', ' ');
-        return snippet.length() > 120 ? snippet.substring(0, 120) + "\u2026" : snippet;
-    }
 
     private Notification buildNotification() {
+        shownPlaying = playing;
+        shownBook = bookId;
         updateSession();
         PendingIntent openPi = PendingIntent.getActivity(this, 0, openIntent(),
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
@@ -707,7 +702,7 @@ public class TtsService extends Service implements TextToSpeech.OnInitListener {
         Notification.Builder b = new Notification.Builder(this, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_play)
                 .setContentTitle(book != null ? book.title : "Lecture vocale")
-                .setContentText(currentSnippet())
+                .setContentText(book != null && book.author != null ? book.author : "")
                 .setLargeIcon(cover)
                 .setContentIntent(openPi)
                 .setDeleteIntent(action(ACTION_STOP))
@@ -735,8 +730,17 @@ public class TtsService extends Service implements TextToSpeech.OnInitListener {
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
+    // Dernier état affiché : le lecteur n'est republié que s'il change. Le republier à chaque
+    // phrase faisait redessiner la carte du lecteur et perdre des appuis sur pause/lecture.
+    private Boolean shownPlaying;
+    private String shownBook;
+
     private void updateNotification() {
         if (!playing && !ready) return;
+        if (shownPlaying != null && shownPlaying == playing
+                && (bookId == null ? shownBook == null : bookId.equals(shownBook))) {
+            return;
+        }
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         if (nm != null) nm.notify(NOTIFICATION_ID, buildNotification());
     }
