@@ -1,0 +1,9 @@
+# Gradle / Android
+.gradle/
+build/
+app/build/
+local.properties
+*.apk
+
+# Bibliothèque sherpa-onnx (48 Mo) : récupérée par scripts/fetch-libs.sh
+app/libs/*.aar
