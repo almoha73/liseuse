@@ -85,6 +85,7 @@ public class ReaderActivity extends AppCompatActivity implements TtsService.List
     private ScrollView scroll;
     private ProgressBar progress;
     private ImageButton btnPlay;
+    private ProgressBar playLoading;
     private Button btnPagePrev;
     private TextView timelineChapter;
     private TextView timelineInfo;
@@ -139,6 +140,7 @@ public class ReaderActivity extends AppCompatActivity implements TtsService.List
         scroll = findViewById(R.id.scroll);
         progress = findViewById(R.id.progress);
         btnPlay = findViewById(R.id.btn_play);
+        playLoading = findViewById(R.id.play_loading);
         btnSpeed = findViewById(R.id.btn_speed);
         btnPagePrev = findViewById(R.id.btn_page_prev);
         btnPageNext = findViewById(R.id.btn_page_next);
@@ -245,6 +247,7 @@ public class ReaderActivity extends AppCompatActivity implements TtsService.List
         int idx = tts.currentIndex();
         if (idx >= 0 && idx < bt.sentences.size()) highlight(idx, true);
         updatePlayButton(tts.isPlaying());
+        showLoading(tts.isLoading());
     }
 
     /** Barre d'avancement : glisser pour aller n'importe où dans le livre. */
@@ -558,6 +561,14 @@ public class ReaderActivity extends AppCompatActivity implements TtsService.List
         String v = String.format(java.util.Locale.FRANCE, "%.2f", speed);
         v = v.replaceAll("0+$", "").replaceAll(",$", "");
         if (btnSpeed != null) btnSpeed.setText(v + "×");
+    }
+
+    /** Petit cercle à la place de ▶/⏸ tant que la voix ne s'entend pas ; le bouton reste actif (annule). */
+    private void showLoading(boolean loading) {
+        if (playLoading == null || btnPlay == null) return;
+        playLoading.setVisibility(loading ? View.VISIBLE : View.GONE);
+        btnPlay.setImageAlpha(loading ? 0 : 255);
+        btnPlay.setContentDescription(getString(loading ? R.string.loading_voice : R.string.pause));
     }
 
     private void updatePlayButton(boolean playing) {
@@ -1017,7 +1028,15 @@ public class ReaderActivity extends AppCompatActivity implements TtsService.List
 
     @Override
     public void onState(boolean playing) {
-        main.post(() -> updatePlayButton(playing));
+        main.post(() -> {
+            updatePlayButton(playing);
+            if (!playing) showLoading(false);
+        });
+    }
+
+    @Override
+    public void onLoading(boolean loading) {
+        main.post(() -> showLoading(loading));
     }
 
     @Override

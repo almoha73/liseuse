@@ -50,6 +50,41 @@ public class TtsService extends Service implements TextToSpeech.OnInitListener {
         void onTtsReady();
 
         void onTtsError(String message);
+
+        /** La voix a été demandée mais ne s'entend pas encore (calcul de la première phrase). */
+        void onLoading(boolean loading);
+    }
+
+    // Démarrage en cours : entre la demande de lecture et le premier son.
+    private static final long LOADING_TIMEOUT_MS = 15_000;
+    private volatile boolean loading;
+    private long loadingSince;
+    // Démarrage provoqué par « lecture » (et non par un saut) : seul cas où l'on ignore une pause système.
+    private boolean loadingAfterPlay;
+    private final android.os.Handler loadingHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable loadingTimeout = () -> setLoading(false);
+
+    public boolean isLoading() {
+        return loading;
+    }
+
+    private void setLoading(boolean value) {
+        if (loading == value) return;
+        loading = value;
+        loadingSince = value ? android.os.SystemClock.elapsedRealtime() : 0;
+        loadingHandler.removeCallbacks(loadingTimeout);
+        if (value) loadingHandler.postDelayed(loadingTimeout, LOADING_TIMEOUT_MS);
+        else loadingAfterPlay = false;
+        if (listener != null) listener.onLoading(value);
+    }
+
+    /**
+     * Pause demandée depuis le lecteur système (notification, écran verrouillé, casque) :
+     * ignorée pendant le démarrage, où un deuxième appui vient souvent de l'impatience.
+     */
+    private void pauseFromSystem() {
+        if (loading && loadingAfterPlay) return;
+        pause();
     }
 
     public class LocalBinder extends Binder {
@@ -174,6 +209,7 @@ public class TtsService extends Service implements TextToSpeech.OnInitListener {
             public void onStart(String utteranceId) {
                 int i = parseId(utteranceId);
                 if (i >= 0) {
+                    setLoading(false);
                     measureRate(i);
                     index = i;
                     queueAhead(i);
@@ -201,6 +237,7 @@ public class TtsService extends Service implements TextToSpeech.OnInitListener {
             @Override
             public void onError(String utteranceId) {
                 Log.e("Liseuse", "TTS onError " + utteranceId);
+                setLoading(false);
                 playing = false;
                 releaseAudio();
                 if (listener != null) listener.onState(false);
@@ -294,6 +331,7 @@ public class TtsService extends Service implements TextToSpeech.OnInitListener {
         }
         index = Math.max(0, Math.min(startIndex, text.sentences.size() - 1));
         playing = true;
+        loadingAfterPlay = true;
         requestAudio();
         startForeground(NOTIFICATION_ID, buildNotification());
         if (ready) {
@@ -305,6 +343,7 @@ public class TtsService extends Service implements TextToSpeech.OnInitListener {
 
     public void pause() {
         saveProgress();
+        setLoading(false);
         playing = false;
         if (ready) tts.stop();
         releaseAudio();
@@ -316,6 +355,7 @@ public class TtsService extends Service implements TextToSpeech.OnInitListener {
     public void resume() {
         if (text == null) return;
         playing = true;
+        loadingAfterPlay = true;
         requestAudio();
         startForeground(NOTIFICATION_ID, buildNotification());
         if (ready) speakCurrent();
@@ -325,6 +365,12 @@ public class TtsService extends Service implements TextToSpeech.OnInitListener {
 
     public void toggle() {
         if (playing) pause();
+        else resume();
+    }
+
+    /** Pause/lecture depuis la notification : même protection que pour le lecteur système. */
+    private void toggleFromSystem() {
+        if (playing) pauseFromSystem();
         else resume();
     }
 
@@ -347,6 +393,7 @@ public class TtsService extends Service implements TextToSpeech.OnInitListener {
 
     private void stopAll() {
         saveProgress();
+        setLoading(false);
         playing = false;
         if (ready) tts.stop();
         releaseAudio();
@@ -536,6 +583,11 @@ public class TtsService extends Service implements TextToSpeech.OnInitListener {
     private void speakCurrent() {
         if (!ready || text == null) return;
         if (index < 0 || index >= text.sentences.size()) return;
+        if (playing) {
+            boolean afterPlay = loadingAfterPlay;
+            setLoading(true);
+            loadingAfterPlay = afterPlay;
+        }
         tts.speak(phrase(index), TextToSpeech.QUEUE_FLUSH, null, String.valueOf(index));
         queuedUpTo = index;
         queueAhead(index);
@@ -620,7 +672,7 @@ public class TtsService extends Service implements TextToSpeech.OnInitListener {
 
             @Override
             public void onPause() {
-                pause();
+                pauseFromSystem();
             }
 
             @Override
@@ -751,7 +803,7 @@ public class TtsService extends Service implements TextToSpeech.OnInitListener {
         if (a != null) {
             switch (a) {
                 case ACTION_TOGGLE:
-                    toggle();
+                    toggleFromSystem();
                     break;
                 case ACTION_PAUSE:
                     pause();

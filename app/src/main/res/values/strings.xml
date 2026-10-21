@@ -56,6 +56,7 @@
     <string name="supertonic_download_failed">Téléchargement impossible</string>
     <string name="background">Continuer en fond</string>
     <string name="retry">Réessayer</string>
+    <string name="loading_voice">Chargement de la voix… (toucher pour annuler)</string>
     <string name="close">Fermer</string>
     <string name="bookmark_exists">Il y a déjà un signet ici</string>
     <string name="bookmark_added">Signet ajouté</string>

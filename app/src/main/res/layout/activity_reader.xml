@@ -144,16 +144,32 @@
             android:scaleType="centerInside"
             android:src="@drawable/ic_replay10" />
 
-        <ImageButton
-            android:id="@+id/btn_play"
+        <FrameLayout
             android:layout_width="0dp"
             android:layout_height="52dp"
-            android:layout_weight="1.4"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/play"
-            android:padding="12dp"
-            android:scaleType="centerInside"
-            android:src="@drawable/ic_play" />
+            android:layout_weight="1.4">
+
+            <ImageButton
+                android:id="@+id/btn_play"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/play"
+                android:padding="12dp"
+                android:scaleType="centerInside"
+                android:src="@drawable/ic_play" />
+
+            <!-- Chargement de la voix : affiché par-dessus le bouton, qui reste cliquable (annuler). -->
+            <ProgressBar
+                android:id="@+id/play_loading"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:layout_gravity="center"
+                android:clickable="false"
+                android:focusable="false"
+                android:indeterminateTint="#F6F1E7"
+                android:visibility="gone" />
+        </FrameLayout>
 
         <ImageButton
             android:id="@+id/btn_next"
